@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: agentic-ai-day1-lab
+Version: 0.1.0
+Summary: Day 1 lab — build an enterprise research agent with LangGraph
+Requires-Python: >=3.11
+Requires-Dist: langgraph>=0.4
+Requires-Dist: langchain-core>=0.3
+Requires-Dist: langchain-openai>=0.3
+Requires-Dist: langchain-tavily>=0.2
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: pydantic>=2.7
+Requires-Dist: typing-extensions>=4.10

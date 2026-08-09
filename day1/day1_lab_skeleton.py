@@ -37,9 +37,9 @@ from typing_extensions import TypedDict
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-
 from langchain_core.messages import HumanMessage
-
+from langgraph.graph import StateGraph,START,END
+from langgraph.checkpoint.memory import InMemorySaver
 # TODO STEP 0 — import the graph building blocks from langgraph.
 # You need: StateGraph, START, END from langgraph.graph
 #           InMemorySaver from langgraph.checkpoint.memory
@@ -70,7 +70,13 @@ load_dotenv()
 class AgentState(TypedDict):
     topic: str
     # TODO: add the remaining 6 keys (one uses Annotated + operator.add)
-    pass
+    search_query:str
+    collected_data:List[Dict]
+    analyzed_data:List[Dict]
+    quality_score:int
+    iteration_count:int
+    final_report:str
+    execution_logs: Annotated[List[str],operator.add]
 
 
 # ============================================================
@@ -134,6 +140,24 @@ class AgentState(TypedDict):
 # TODO: your code here
 
 
+from langchain_openai import ChatOpenAI
+from langchain_tavily import TavilySearch
+from langchain_core.vectorstores import InMemoryVectorStore
+from langchain_core.embeddings import DeterministicFakeEmbedding
+
+llm = ChatOpenAI(
+       model="nvidia/nemotron-3-super-120b-a12b:free",
+      temperature=0,
+      base_url="https://openrouter.ai/api/v1",
+)
+
+search_tool = TavilySearch(max_results=5)
+
+embeddings = DeterministicFakeEmbedding(size=384)
+
+vector_store = InMemoryVectorStore(embedding=embeddings)
+
+
 # ============================================================
 # STEP 3 — STRUCTURED OUTPUT for the quality score
 # ============================================================
@@ -151,6 +175,8 @@ class QualityScore(BaseModel):
     reasoning: str = Field(description="One-sentence justification")
 
 # TODO: evaluator = llm.with_structured_output(QualityScore)
+
+evaluator = llm.with_structured_output(QualityScore)
 
 
 # ============================================================
@@ -171,40 +197,143 @@ def collect_node(state: AgentState):
     # 3. results = search_tool.invoke({"query": query})["results"]
     # 4. return {"search_query": ..., "collected_data": ...,
     #            "iteration_count": ..., "execution_logs": [...]}
-    pass
+
+    iteration = state["iteration_count"] + 1
+    topic = state["topic"]
+    
+    if iteration == 1:
+        query = f"overview and key principles of {topic}"
+    elif iteration == 2:
+        query = f"advanced application and architecture of {topic}"
+    else:
+        query = f"challenges and enterprise case studies for {topic}"
+    results = search_tool.invoke({"query":query})["results"]
+    return {"search_query":query,"collected_data":results,"iteration_count":iteration
+            ,"execution_logs":[f"Iteration {iteration}: Searched for '{query}'"]}
 
 
 def store_memory_node(state: AgentState):
     """Save source contents into the vector store."""
     # TODO: vector_store.add_texts([...contents...])
-    pass
+    collected_data = state.get("collected_data",[])
+    texts = [item["content"] for item in collected_data if "content" in item]
 
+    if texts:
+        vector_store.add_texts(texts=texts)
+    
+    log_message = f"[store_memory_node] Stored {len(texts)} document chunks in vector store."
+    return {"execution_logs":[log_message]}
 
 def analyze_node(state: AgentState):
     """LLM-analyze each source. Bonus: retrieve related past
     research with vector_store.similarity_search(content, k=2)
     and include it in the prompt — that's what makes this RAG."""
     # TODO
-    pass
+    collected_data = state.get("collected_data",[])
+    topic = state.get("topic","")
+    analyzed_results = []
+    
+    for item in collected_data:
+        content = item.get("content","")
+        title = item.get("title","untitled")
+        retrieved_docs = vector_store.similarity_search(content,k=2)
+        past_context = "\n---\n".join([doc.page_content for doc in retrieved_docs])
+        
+        prompt = f"""You are a helpful AI assistant analyzing research data for the topic: '{topic}'.
+            Newly Collected Data:
+            Title: {title}
+            Content: {content}
 
+            Retrieved Past Memory (RAG Context):
+            {past_context if past_context else "No prior context."}
+
+            Task: Extract key insights, facts, and technical details from this data."""
+        
+        response = llm.invoke([HumanMessage(content=prompt)])
+
+        analyzed_results.append({
+            "title":title,
+            "analysis":response.content
+        })
+        
+    return {
+        "analyzed_data":analyzed_results,
+        "execution_logs":[f"[analyzed_node] Analyzed {len(analyzed_results)} items."]
+    }
 
 def evaluate_node(state: AgentState):
     """Score the research with the STRUCTURED evaluator (Step 3)."""
     # TODO: return {"quality_score": result.score, "execution_logs": [...]}
-    pass
+    analyzed_data = state.get("analyzed_data",[])
+    topic = state.get("topic","")
+    
+    formatted_analysis = "\n\n".join(
+        [f"source: {item.get('title','untitled')}\nAnalysis: {item.get('analysis','')}" for item in analyzed_data]
+    )
+    
+    prompt = f"""
+        You are a helpful quality researcher AI assistant evaluator
+        Topic: {topic}
+        
+        Research Collected & Analyzed:
+        {formatted_analysis if formatted_analysis else "no data analyzed yet."}
+        
+        Task: Assess whether this research provides sufficient depth, technical detail, and actionable insights on the topic.
+        Assign a score from 1 (unusable) to 10 (exceptionally thorough and complete) and provide a concise reason.
+    """
+    
+    eval_result:QualityScore = evaluator.invoke([HumanMessage(content=prompt)])
+    
+    log_message = f"[evaluate_node] Quality Score: {eval_result.score}/10. Reason: {eval_result.reasoning}"
+    
+    return {
+        "quality_score":eval_result.score,
+        "execution_logs":[log_message]
+    }
 
 
 def report_node(state: AgentState):
     """Generate the enterprise report from analyzed_data."""
-    # TODO
-    pass
+    analyzed_data = state.get("analyzed_data", [])
+    topic = state.get("topic", "")
+    
+
+    sources_summary = "\n\n".join(
+        [f"Source: {item.get('title')}\n{item.get('analysis')}" for item in analyzed_data]
+    )
+    
+    prompt = f"""You are a principal technical analyst writing a final enterprise report.
+        Topic: {topic}
+
+        Analyzed Findings:
+        {sources_summary}
+
+        Task: Synthesize the findings above into a structured, executive-ready enterprise report.
+    """
+
+    response = llm.invoke([HumanMessage(content=prompt)])
+    
+    return {
+        "final_report": response.content,
+        "execution_logs": ["[report_node] Generated final enterprise report."]
+    }
+    
 
 
 def audit_node(state: AgentState):
     """Log completion stats."""
     # TODO
-    pass
+    logs = state.get("execution_logs",[])
+    quality_score = state.get("quality_score",0)
+    iterations = state.get("iteration_count",0)
+    
+    audit_summary = (
+        f"[audit_node] Workflow completed in {iterations} iteration(s) "
+        f"with final quality score {quality_score}/10."
+        f"Total log entries: {len(logs)}"
+    )
 
+    return {"execution_logs":[audit_summary]}
 
 # ============================================================
 # STEP 5 — THE CONDITIONAL EDGE (the heart of this lab)
@@ -230,7 +359,12 @@ def audit_node(state: AgentState):
 
 def quality_router(state: AgentState) -> str:
     # TODO: return "report" or "collect"
-    pass
+    quality_score = state.get("quality_score",0)
+    iteration_count = state.get("iteration_count",0)
+    
+    if quality_score >= 7 or iteration_count >= 3:
+        return "report"
+    return "collect"
 
 
 # ============================================================
@@ -249,6 +383,30 @@ def quality_router(state: AgentState) -> str:
 
 # TODO: your code here
 
+workflow = StateGraph(AgentState)
+workflow.add_node("collect", collect_node)
+workflow.add_node("store_memory", store_memory_node)
+workflow.add_node("analyze", analyze_node)
+workflow.add_node("evaluate", evaluate_node)
+workflow.add_node("report", report_node)
+workflow.add_node("audit", audit_node)
+
+workflow.add_edge(START, "collect")
+workflow.add_edge("collect", "store_memory")
+workflow.add_edge("store_memory", "analyze")
+workflow.add_edge("analyze", "evaluate")
+
+workflow.add_conditional_edges(
+    "evaluate", 
+    quality_router, 
+    {
+        "collect": "collect", 
+        "report": "report"
+    }
+)
+
+workflow.add_edge("report", "audit")
+workflow.add_edge("audit", END)
 
 # ============================================================
 # STEP 7 — COMPILE with a checkpointer, VISUALIZE, RUN
@@ -275,6 +433,17 @@ def quality_router(state: AgentState) -> str:
 #    then inspect state and resume. WHERE TO LOOK:
 #       https://docs.langchain.com/oss/python/langgraph/interrupts
 
+
+checkpointer = InMemorySaver()
+
+
+app = workflow.compile(checkpointer=checkpointer)
+
+
+print("=== MERMAID GRAPH DIAGRAM ===")
+print(app.get_graph().draw_mermaid())
+print("=============================\n")
+
 if __name__ == "__main__":
     initial_state = {
         "topic": "Enterprise Agentic AI Systems",
@@ -287,8 +456,28 @@ if __name__ == "__main__":
         "execution_logs": [],
     }
     # TODO: compile, visualize, stream, print final report + logs
+    config = {"configurable": {"thread_id": "research-run-1"}}
 
+    print("--- STARTING STREAMING EXECUTION ---")
+    
+    for state_snapshot in app.stream(initial_state, config=config, stream_mode="values"):
+        current_logs = state_snapshot.get("execution_logs", [])
+        if current_logs:
+            # Print the most recent log line added to the state
+            print(f"> {current_logs[-1]}")
 
+    print("\n--- WORKFLOW COMPLETE ---")
+
+    # Fetch final state snapshot from the checkpointer thread
+    final_snapshot = app.get_state(config)
+    
+    print("\n=== FINAL REPORT ===")
+    print(final_snapshot.values.get("final_report", "No report generated."))
+    
+    print("\n=== COMPLETE EXECUTION LOGS ===")
+    for log in final_snapshot.values.get("execution_logs", []):
+        print(f" - {log}")
+        
 # ============================================================
 # SELF-CHECK before you look at the solution
 # ============================================================

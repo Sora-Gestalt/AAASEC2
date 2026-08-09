@@ -1,0 +1,7 @@
+langgraph>=0.4
+langchain-core>=0.3
+langchain-openai>=0.3
+langchain-tavily>=0.2
+python-dotenv>=1.0
+pydantic>=2.7
+typing-extensions>=4.10
