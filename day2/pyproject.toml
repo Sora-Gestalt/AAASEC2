@@ -1,0 +1,31 @@
+[project]
+name = "agentic-ai-day2-lab"
+version = "0.1.0"
+description = "Day 2 lab — multi-agent research team (supervisor pattern) with LangGraph"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.4",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.3",
+    "langchain-tavily>=0.2",
+    "python-dotenv>=1.0",
+    "pydantic>=2.7",
+    "typing-extensions>=4.10",
+]
+
+[dependency-groups]
+# Installed by default with `uv sync` — Jupyter for the .ipynb labs
+dev = [
+    "jupyterlab>=4.2",
+    "ipykernel>=6.29",
+]
+# Optional: local embeddings for the RAG bonus (large download!)
+# Install with: uv sync --group embeddings
+embeddings = [
+    "langchain-huggingface>=0.1",
+    "sentence-transformers>=3.0",
+]
+
+[tool.uv]
+# `uv sync` installs the dev group automatically; embeddings stays opt-in.
+default-groups = ["dev"]
