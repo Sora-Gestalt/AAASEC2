@@ -109,6 +109,7 @@ class AgentState(TypedDict):
 #   nvidia/nemotron-3-super-120b-a12b:free   <- use this one
 #   nvidia/nemotron-3-nano-30b-a3b:free      <- fallback if rate-limited
 #   nvidia/nemotron-3-ultra-550b-a55b:free   <- biggest, often congested
+#   deepseek/deepseek-v4-flash-0731:free     <- try it, could work
 # Full list: https://openrouter.ai/collections/free-models
 #
 # KNOW THE LIMITS: free models are rate-limited (~20 req/min and a

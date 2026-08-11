@@ -1,0 +1,19 @@
+# DAY 3 — read 05-docker-compose.md before touching this file.
+# The application is no longer "a process". It is a SET of services.
+services:
+  agent-api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # inside the compose network, services address each other BY NAME
+      - MCP_URL=http://mcp:8001/mcp
+    depends_on:
+      - mcp
+
+  mcp:
+    build: .
+    command: uv run --no-dev python src/mcp_server.py
+    ports:
+      - "8001:8001"
