@@ -52,10 +52,10 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from langchain_core.messages import HumanMessage, SystemMessage
-
-# TODO STEP 0 — same imports as Day 1:
-# StateGraph, START, END from langgraph.graph
-# InMemorySaver from langgraph.checkpoint.memory
+from langchain_openai import ChatOpenAI
+from langchain_tavily import TavilySearch
+from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import InMemorySaver
 
 load_dotenv()
 
@@ -84,8 +84,14 @@ MAX_TURNS = 12         # cap on total supervisor decisions
 
 class TeamState(TypedDict):
     task: str
-    # TODO: add the remaining 8 keys (two use Annotated + operator.add)
-    pass
+    research_notes: Annotated[List[str], operator.add]
+    analysis: str
+    draft: str
+    critique: str
+    revision_count: int
+    turn_count: int
+    next_agent: str
+    execution_logs: Annotated[List[str], operator.add]
 
 
 # ============================================================
@@ -129,10 +135,46 @@ class RouterDecision(BaseModel):
 # yourself what could go wrong if the critic could search.
 
 PERSONAS = {
-    # TODO: four personas
+    "researcher": (
+        "You are an expert researcher. Your sole responsibility is to search for factual, "
+        "up-to-date, and relevant raw information concerning the user's task. Summarize facts "
+        "concisely into raw notes. You MUST NOT offer strategic insights, write final drafts, or criticize."
+    ),
+    "analyst": (
+        "You are a strategic business analyst. Your job is to take raw research notes and analyze "
+        "key trends, trade-offs, advantages, and risks. You MUST NOT perform web searches, write "
+        "polished final reports, or review drafts."
+    ),
+    "writer": (
+        "You are a professional technical writer. Your task is to draft comprehensive, cohesive, "
+        "and polished reports based on research notes and strategic analysis. If feedback/critique "
+        "is provided, address every critique point directly in your revision. You MUST NOT perform web searches."
+    ),
+    "critic": (
+        "You are a strict editorial critic. Your sole task is to review draft reports against provided "
+        "research notes and analysis. If the draft is complete and accurate, respond with 'APPROVED'. "
+        "If improvements are needed, start your response strictly with 'REVISE:' followed by clear, actionable feedback. "
+        "You MUST NOT draft new sections or perform web searches."
+    ),
 }
 
-# TODO: llm, search_tool, supervisor_llm, run_persona
+llm = ChatOpenAI(
+       model="nvidia/nemotron-3-super-120b-a12b:free",
+      temperature=0,
+      base_url="https://openrouter.ai/api/v1",
+)
+
+search_tool = TavilySearch(max_results=4)
+supervisor_llm = llm.with_structured_output(RouterDecision)
+
+
+def run_persona(role: str, user_content: str) -> str:
+    messages = [
+        SystemMessage(content=PERSONAS[role]),
+        HumanMessage(content=user_content),
+    ]
+    response = llm.invoke(messages)
+    return str(response.content)
 
 
 # ============================================================
@@ -156,8 +198,47 @@ PERSONAS = {
 # WHERE TO LOOK: multi-agent docs → "Supervisor" section.
 
 def supervisor_node(state: TeamState):
-    # TODO
-    pass
+    current_turn = state.get("turn_count", 0) + 1
+
+    has_research = len(state.get("research_notes", [])) > 0
+    has_analysis = bool(state.get("analysis", ""))
+    has_draft = bool(state.get("draft", ""))
+    has_critique = bool(state.get("critique", ""))
+    critique_text = state.get("critique", "")
+    revisions = state.get("revision_count", 0)
+
+    status_summary = (
+        f"Task: {state['task']}\n"
+        f"Research Notes Present: {has_research} ({len(state.get('research_notes', []))} entries)\n"
+        f"Analysis Present: {has_analysis}\n"
+        f"Draft Present: {has_draft}\n"
+        f"Critique Present: {has_critique} (Content: {critique_text if has_critique else 'None'})\n"
+        f"Revision Count: {revisions}/{MAX_REVISIONS}\n"
+        f"Current Turn Count: {current_turn}/{MAX_TURNS}\n\n"
+        "Determine the next agent to route to. Workflow order is typically: "
+        "researcher -> analyst -> writer -> critic -> (writer if REVISE, else FINISH). "
+        "Choose FINISH if work is fully complete or approved."
+    )
+
+    prompt = [
+        SystemMessage(content="You are the supervisor coordinating a multi-agent team. Select the next single best agent to execute task standard workflow."),
+        HumanMessage(content=status_summary)
+    ]
+
+    decision = supervisor_llm.invoke(prompt)
+    next_agent = decision.next_agent
+
+    if current_turn > MAX_TURNS:
+        next_agent = "FINISH"
+    elif next_agent in ["writer", "critic"] and revisions >= MAX_REVISIONS and has_draft:
+        next_agent = "FINISH"
+
+    log_msg = f"[{datetime.now().isoformat()}] Supervisor selected '{next_agent}'. Reason: {decision.reason}"
+    return {
+        "next_agent": next_agent,
+        "turn_count": current_turn,
+        "execution_logs": [log_msg],
+    }
 
 
 # ============================================================
@@ -168,39 +249,88 @@ def supervisor_node(state: TeamState):
 
 def researcher_node(state: TeamState):
     """Search the web (ONLY this agent may), condense to notes."""
-    # TODO:
-    # 1. results = search_tool.invoke({"query": state["task"]})["results"]
-    # 2. Format results into a raw text block (title, content, url)
-    # 3. notes = run_persona("researcher", f"Task ...\n\nSearch results:\n{raw}")
-    # 4. return {"research_notes": [notes], "execution_logs": [...]}
-    #    ^ note the LIST — research_notes is append-only!
-    pass
+    try:
+        results = search_tool.invoke({"query": state["task"]})
+        if isinstance(results, dict) and "results" in results:
+            results = results["results"]
+        raw_text = "\n\n".join([f"Title: {r.get('title')}\nURL: {r.get('url')}\nContent: {r.get('content')}" for r in results])
+    except Exception as e:
+        raw_text = f"Search failed or unavailable: {str(e)}"
+
+    notes = run_persona("researcher", f"Task: {state['task']}\n\nSearch Results:\n{raw_text}")
+    log = f"[{datetime.now().isoformat()}] Researcher generated notes."
+    return {
+        "research_notes": [notes],
+        "execution_logs": [log]
+    }
 
 
 def analyst_node(state: TeamState):
     """Turn raw notes into analysis."""
-    # TODO: run_persona("analyst", ...) → {"analysis": ..., "execution_logs": [...]}
-    pass
+    notes_str = "\n---\n".join(state.get("research_notes", []))
+    prompt = f"Task: {state['task']}\n\nResearch Notes:\n{notes_str}"
+    analysis = run_persona("analyst", prompt)
+    log = f"[{datetime.now().isoformat()}] Analyst generated strategic evaluation."
+    return {
+        "analysis": analysis,
+        "execution_logs": [log]
+    }
 
 
 def writer_node(state: TeamState):
     """Write the draft — or REVISE it if a critique is present."""
-    # TODO:
-    # 1. revising = critique exists and starts with "REVISE"
-    # 2. Build the prompt; when revising, include the previous draft
-    #    AND the critique so the writer knows what to fix.
-    # 3. return {"draft": ...,
-    #            "critique": "",   <- WHY reset this? (see self-check)
-    #            "revision_count": +1 only when revising,
-    #            "execution_logs": [...]}
-    pass
+    critique = state.get("critique", "")
+    revising = bool(critique and critique.startswith("REVISE"))
+
+    notes_str = "\n---\n".join(state.get("research_notes", []))
+    analysis_str = state.get("analysis", "")
+    current_draft = state.get("draft", "")
+
+    if revising:
+        prompt = (
+            f"Task: {state['task']}\n\n"
+            f"Research Notes:\n{notes_str}\n\n"
+            f"Analysis:\n{analysis_str}\n\n"
+            f"Previous Draft:\n{current_draft}\n\n"
+            f"Critique to Fix:\n{critique}\n\n"
+            "Please revise the draft to address the critique completely."
+        )
+    else:
+        prompt = (
+            f"Task: {state['task']}\n\n"
+            f"Research Notes:\n{notes_str}\n\n"
+            f"Analysis:\n{analysis_str}\n\n"
+            "Please write the initial draft based on the research and analysis."
+        )
+
+    draft = run_persona("writer", prompt)
+    rev_count = state.get("revision_count", 0) + (1 if revising else 0)
+    log = f"[{datetime.now().isoformat()}] Writer {'revised' if revising else 'created'} the draft."
+
+    return {
+        "draft": draft,
+        "critique": "",
+        "revision_count": rev_count,
+        "execution_logs": [log]
+    }
 
 
 def critic_node(state: TeamState):
     """Review the draft against the research notes."""
-    # TODO: run_persona("critic", ...) → the persona replies either
-    # "APPROVED" or "REVISE: <fixes>". Store it in critique.
-    pass
+    notes_str = "\n---\n".join(state.get("research_notes", []))
+    prompt = (
+        f"Task: {state['task']}\n\n"
+        f"Research Notes:\n{notes_str}\n\n"
+        f"Analysis:\n{state.get('analysis', '')}\n\n"
+        f"Current Draft:\n{state.get('draft', '')}\n\n"
+        "Review the draft. Respond with 'APPROVED' or 'REVISE: <detailed suggestions>'."
+    )
+    critique = run_persona("critic", prompt)
+    log = f"[{datetime.now().isoformat()}] Critic completed review."
+    return {
+        "critique": critique,
+        "execution_logs": [log]
+    }
 
 
 # ============================================================
@@ -225,7 +355,35 @@ def critic_node(state: TeamState):
 #    hub-and-spoke shape that defines the supervisor pattern.
 #    (A for-loop over the four worker names is idiomatic.)
 
-# TODO: route_from_supervisor + graph wiring
+def route_from_supervisor(state: TeamState) -> str:
+    return state["next_agent"]
+
+
+builder = StateGraph(TeamState)
+
+builder.add_node("supervisor", supervisor_node)
+builder.add_node("researcher", researcher_node)
+builder.add_node("analyst", analyst_node)
+builder.add_node("writer", writer_node)
+builder.add_node("critic", critic_node)
+
+builder.add_edge(START, "supervisor")
+
+builder.add_conditional_edges(
+    "supervisor",
+    route_from_supervisor,
+    {
+        "researcher": "researcher",
+        "analyst": "analyst",
+        "writer": "writer",
+        "critic": "critic",
+        "FINISH": END,
+    }
+)
+
+workers = ["researcher", "analyst", "writer", "critic"]
+for worker in workers:
+    builder.add_edge(worker, "supervisor")
 
 
 # ============================================================
@@ -244,6 +402,14 @@ def critic_node(state: TeamState):
 #   through the team? This is why persona boundaries matter.
 
 if __name__ == "__main__":
+    memory = InMemorySaver()
+    graph = builder.compile(checkpointer=memory)
+
+    try:
+        print(graph.get_graph().draw_mermaid())
+    except Exception:
+        pass
+
     initial_state = {
         "task": "Should our company adopt multi-agent AI systems in 2026?",
         "research_notes": [],
@@ -255,7 +421,22 @@ if __name__ == "__main__":
         "next_agent": "",
         "execution_logs": [],
     }
-    # TODO: compile, visualize, stream, print final draft + stats
+
+    config = {"configurable": {"thread_id": "day2_test_run"}}
+
+    for event in graph.stream(initial_state, config=config, stream_mode="values"):
+        agent = event.get("next_agent", "start")
+        turns = event.get("turn_count", 0)
+        print(f"\n--- Turn {turns} | State update triggered by: {agent} ---")
+        if event.get("execution_logs"):
+            print(f"Latest Log: {event['execution_logs'][-1]}")
+
+    final_state = graph.get_state(config).values
+    print("\n================ FINAL DRAFT ================")
+    print(final_state.get("draft", "No draft produced."))
+    print("=============================================")
+    print(f"Total turns: {final_state.get('turn_count')}")
+    print(f"Total revisions: {final_state.get('revision_count')}")
 
 
 # ============================================================
