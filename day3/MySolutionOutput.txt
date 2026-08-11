@@ -60,3 +60,23 @@ zone, and failure-handling procedure (snag detection/low-tension mode) before sc
 Confidence:** Medium—tethered-drone benefits and constraints are well-established, but performance varies significantly 
 by cable, payload, and mission profile."}]}]}
 
+----------------------
+
+6-
+
+Discovered tools: ['calculate', 'word_stats']
+Calculate Result: 98.0
+Word Stats Result: {'word_count': 4, 'char_count': 28, 'char_count_no_spaces': 25, 'avg_word_length': 6.25}
+tarting MCP server 'Day3 Tools' with transport 'http' on http://0.0.0.0:8001/mcp                                                                                      transport.py:361
+INFO:     Started server process [8660]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+INFO:     127.0.0.1:49088 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49090 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:49094 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49108 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49116 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49130 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49138 - "DELETE /mcp HTTP/1.1" 200 OK
+
