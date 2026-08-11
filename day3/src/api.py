@@ -25,3 +25,79 @@ TODO:
 """
 
 # TODO
+import time
+import uuid
+import typing
+from fastapi import FastAPI
+from pydantic import BaseModel
+from src.agent import build_agent
+app = FastAPI(title="Deep Agent service",version="1.0.0")
+agent = build_agent()
+
+
+class ResponseRequest(BaseModel):
+   input:str
+   model: typing.Optional[str]="default"
+   
+class TextContent(BaseModel):
+   type:str = "output_text"
+   text:str
+   
+class OutputMessage(BaseModel):
+   type:str = "message"
+   role:str = "assistant"
+   content: list[TextContent]
+   
+class OpenResponsesResponse(BaseModel):
+    id: str
+    object: str = "response"
+    created_at: int
+    status: str = "completed"
+    model: str
+    output: list[OutputMessage]
+    
+   
+
+
+
+@app.get("/healthz")
+async def healthz():
+    """Health check endpoint used by Docker and orchestrators."""
+    return {"status": "ok"}
+ 
+ 
+@app.post("/v1/responses", response_model=OpenResponsesResponse)
+async def create_response(body: ResponseRequest):
+    """Exposes the agent through the OpenResponses API shape."""
+    # Invoke agent with input adhering to .ainvoke({"messages": [...]})
+    response = await agent.ainvoke(
+        {"messages": [{"role": "user", "content": body.input}]}
+    )
+
+    # Extract response content handling dict or LangChain BaseMessage objects
+    messages = response.get("messages", [])
+    if messages:
+        last_msg = messages[-1]
+        text_content = (
+            last_msg.content
+            if hasattr(last_msg, "content")
+            else last_msg.get("content", "")
+        )
+    else:
+        text_content = str(response)
+
+    # Wrap reply in standard OpenResponses response object
+    return OpenResponsesResponse(
+        id=f"resp_{uuid.uuid4().hex[:12]}",
+        object="response",
+        created_at=int(time.time()),
+        status="completed",
+        model=body.model or "default",
+        output=[
+            OutputMessage(
+                type="message",
+                role="assistant",
+                content=[TextContent(type="output_text", text=str(text_content))],
+            )
+        ],
+    )

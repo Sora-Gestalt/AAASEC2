@@ -1,0 +1,62 @@
+1- agent-tools and skills
+OUTPUT -> 
+Agent initialized successfully.
+--- Research Brief Reply ---
+**Headline** — Aerial manipulation is moving from proof-of-concept to task-focused systems that combine contact modeling, visual servoing, and safety constraints.  
+
+**Context** — Drones that physically interact with objects (grasping, pushing, docking, or in-air assembly) are attractive for inspections, maintenance, logistics, and construction. Progress is constrained by instability during contact, perception errors, and the need for reliable control when thrust and aerodynamic disturbances couple with hand–object dynamics.  
+
+**Findings** —  
+- Most robust systems treat manipulation as a closed-loop problem using vision-based state estimation plus control laws that explicitly account for contact forces (or contact-event handling).  
+- Controller designs increasingly separate “flight stabilization” from “manipulation regulation,” reducing coupling that otherwise amplifies oscillations at the moment of contact.  
+- Experimental benchmarks and evaluations are shifting toward end-to-end success criteria (task completion and safety/constraint satisfaction) rather than only trajectory tracking.  
+
+**Recommendation** — Build a baseline aerial manipulation stack that runs in simulation first (state estimation + contact-aware control), then validate on one repeatable contact task with quantified failure modes.  
+
+**Confidence** — Medium: the field is well-established, but exact adoption rates and best practices vary by platform and dataset.
+
+--- Math Reply ---
+15 × 15 = **225**.
+
+--------------------
+2- Agent initialized successfully.
+--- Code Review Notes Reply ---
+- **Avoid `eval()`**: The review flags `eval(` usage; if present it can enable arbitrary code execution—validate/parse instead of evaluating dynamic strings.  
+- **Avoid `exec()`**: The review flags `exec(` usage; same arbitrary code execution risk—replace with safe interpreters or controlled execution paths.  
+- **Harden command execution**: If `subprocess` appears, ensure shell usage is audited (e.g., avoid `shell=True`, sanitize arguments, and use explicit argv lists).
+
+--- Math Reply ---
+15 × 15 = **225**.
+
+----------------------------
+3- curl -X POST http://localhost:8000/v1/responses      -H 'Content-Type: application/json'      -d '{"input": "write a research brief on tethered drones"}'
+{"id":"resp_bbe9bcc58ce6","object":"response","created_at":1786462599,"status":"completed","model":"default","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"[FakeAgent response] Hello! I am running in fake mode."}]}]}
+
+INFO:     Will watch for changes in these directories: ['/home/sora/Documents/AAASEC2/day3']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [6734] using WatchFiles
+INFO:     Started server process [6736]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:47040 - "POST /v1/responses HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53262 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53262 - "GET /openapi.json HTTP/1.1" 200 OK
+
+
+REAL RUN
+
+{"id":"resp_1c0906be2c3a","object":"response","created_at":1786462713,"status":"completed","model":"default","output":
+[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"**Headline:** Tethered drones trade 
+flight endurance for continuous power and improved control, making them well-suited to persistent sensing and 
+communications.\n\n**Context:** Uncrewed aerial systems increasingly need long-duration operation for surveillance, 
+mapping, and network relay. Tethered designs matter because they address endurance limits and reduce battery-related 
+uncertainty, at the cost of maneuverability constraints and safety engineering.\n\n**Findings:**\n- Tethered drones can 
+sustain operation for extended periods by delivering power and/or data through a cable, reducing reliance on onboard 
+batteries.  \n- Compared with free-flying drones, tethered systems typically face reduced mobility due to cable management 
+limits and tether risk (entanglement, snagging, and mechanical fatigue).  \n- In practice, tethered platforms are commonly 
+evaluated for fixed or semi-fixed operating areas (e.g., perimeter monitoring, communications coverage) where their 
+constrained workspace is acceptable.\n\n**Recommendation:** Run a pilot that defines a maximum tether length, operating 
+zone, and failure-handling procedure (snag detection/low-tension mode) before scaling to longer deployments.\n\n**
+Confidence:** Medium—tethered-drone benefits and constraints are well-established, but performance varies significantly 
+by cable, payload, and mission profile."}]}]}
+
