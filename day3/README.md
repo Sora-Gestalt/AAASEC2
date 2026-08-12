@@ -72,3 +72,14 @@ The `solutions/` folder contains reference implementations of every `src/` file.
 ## What is deliberately NOT here
 
 Code execution and sandboxes. Deep Agents *can* execute code when connected to an execution backend. **We are not doing that today.** Tomorrow: agents writing code, agents executing code, isolation, permissions, resource limits, and "what could possibly go wrong?"
+
+
+## Submission 
+
+Upload an agent + artifact, e.g. a Report Generation Agent: 
+
+The agent code can be based on single agent (day 1) or multi agent (day 2) with an output 
+
+Example: the agent does researches, the final result is a report written in .txt or .md, submit both the agent code, and the output report (the artifact). 
+Another Example: An agent that generates images based on a predefined style, you can give him a query and he will try to use MCP by
+[Black Forest Labs](https://docs.bfl.ml/api_integration/mcp_integration) or [Fal AI](https://fal.ai/docs/documentation/setting-up/mcp), in this case submit the code and the artifact (the generated images)

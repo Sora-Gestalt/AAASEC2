@@ -1,0 +1,18 @@
+[project]
+name = "aaasec2-day4"
+version = "0.1.0"
+description = "Day 4 — agents get computers: sandbox execution, tracing, authenticated MCP"
+requires-python = ">=3.11"
+dependencies = [
+    "deepagents>=0.7,<0.8",
+    "langchain-openai>=0.3",
+    "fastmcp>=3.4,<4",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "langsmith>=0.4",                  # tracing (env vars only, no code)
+]
+
+[dependency-groups]
+# pick ONE sandbox provider:
+daytona = ["langchain-daytona"]        # uv sync --group daytona   (default for the course)
+langsmith-sandbox = ["langsmith[sandbox]"]
